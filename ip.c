@@ -5,6 +5,7 @@
 #include <string.h>
 #include <sys/types.h>
 
+#include "icmp.h"
 #include "platform.h"
 
 #include "ip.h"
@@ -237,6 +238,14 @@ static void ip_input(const uint8_t *data, size_t len, struct net_device *dev) {
     }
   }
   /* unsupported protocol */
+  if (hlen + 8 <= total) {
+    /*
+     * It should not be sent in response to ICMP error messages,
+     * but ICMP is always registered and will not reach this point.
+     */
+    icmp_output(ICMP_TYPE_DEST_UNREACH, ICMP_CODE_PROTO_UNREACH, 0, data,
+                hlen + 8, iface->unicast, hdr->src);
+  }
 }
 
 static int ip_output_device(struct ip_iface *iface, const uint8_t *data,
