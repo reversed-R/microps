@@ -7,6 +7,7 @@
 #include "platform.h"
 
 #include "intr.h"
+#include "net.h"
 #include "timer.h"
 #include "util.h"
 
@@ -15,6 +16,7 @@ int platform_init(void) {
   if (intr_init() == -1) {
     return -1;
   }
+  intr_register(INTR_IRQ_SOFT, net_softirq_handler, 0, NULL);
   if (timer_init() == -1) {
     return -1;
   }
