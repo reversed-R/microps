@@ -311,7 +311,7 @@ ssize_t ip_output(uint8_t protocol, const uint8_t *data, size_t len,
   uint8_t buf[IP_TOTAL_SIZE_MAX];
 
   ip_addr_ntop(src, addr1, sizeof(addr1));
-  ip_addr_ntop(src, addr2, sizeof(addr2));
+  ip_addr_ntop(dst, addr2, sizeof(addr2));
   debugf("%s => %s, protocol=%d, len=%zu", addr1, addr2, protocol, len);
   if (src == IP_ADDR_ANY) {
     errorf("ip routing does not implement");
