@@ -1,5 +1,6 @@
-#include <errno.h>
 #include <pthread.h>
+
+#include <errno.h>
 #include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -12,11 +13,13 @@
 #include "intr.h"
 #include "ip.h"
 #include "net.h"
+#include "platform.h"
 #include "tcp.h"
 #include "udp.h"
 #include "util.h"
 
 #include "driver/loopback.h"
+#include "sock.h"
 #include "test.h"
 
 static volatile sig_atomic_t terminate;
@@ -90,30 +93,73 @@ static int cleanup(void) {
   return 0;
 }
 
-static int app_main(void) {
-  int desc;
-  ip_endp_t local, remote;
+static void conn_main(int soc) {
   uint8_t buf[128];
   ssize_t n;
 
-  ip_endp_pton("0.0.0.0:0", &local);
-  ip_endp_pton("192.0.2.1:10007", &remote);
-  desc = tcp_cmd_open(local, remote, 1);
-  if (desc == -1) {
-    errorf("tcp_cmd_open() failure");
+  while (!terminate) {
+    n = sock_recv(soc, buf, sizeof(buf));
+    if (n == -1) {
+      if (errno == EINTR) {
+        continue;
+      }
+      errorf("sock_recv() failure");
+      break;
+    }
+    if (n == 0) {
+      debugf("connection closed");
+      break;
+    }
+    infof("%zu bytes received", n);
+    hexdump(stderr, buf, n);
+    if (sock_send(soc, buf, n) == -1) {
+      errorf("sock_send() failure");
+      break;
+    }
+  }
+  sock_close(soc);
+}
+
+static int app_main(void) {
+  int soc, acc, remote_len;
+  struct sockaddr_in local, remote;
+  char addr[IP_ADDR_STR_LEN];
+
+  soc = sock_open(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+  if (soc == -1) {
+    errorf("sock_open() failure");
+    return -1;
+  }
+  local.sin_addr.s_addr = INADDR_ANY;
+  local.sin_port = hton16(7);
+  if (sock_bind(soc, (struct sockaddr *)&local, sizeof(local)) == -1) {
+    errorf("sock_bind() failure");
+    sock_close(soc);
+    return -1;
+  }
+  if (sock_listen(soc, 1) == -1) {
+    errorf("sock_listen() failure");
+    sock_close(soc);
     return -1;
   }
   debugf("press Ctrl+C to terminate");
   while (!terminate) {
-    n = tcp_cmd_receive(desc, buf, sizeof(buf));
-    if (n <= 0) {
-      break;
+    remote_len = sizeof(remote);
+    acc = sock_accept(soc, (struct sockaddr *)&remote, &remote_len);
+    if (acc == -1) {
+      if (errno == EINTR) {
+        warnf("sock_accept() interrupted");
+        continue;
+      }
+      errorf("sock_accept() failure");
+      return -1;
     }
-    debugf("%zd bytes data received", n);
-    hexdump(stderr, buf, n);
-    tcp_cmd_send(desc, buf, n);
+    debugf("connection accepted, remote=%s:%u",
+           ip_addr_ntop(remote.sin_addr.s_addr, addr, sizeof(addr)),
+           ntoh16(remote.sin_port));
+    conn_main(acc);
   }
-  tcp_cmd_close(desc);
+  sock_close(soc);
   debugf("terminate");
   return 0;
 }
